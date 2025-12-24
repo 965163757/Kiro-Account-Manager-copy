@@ -151,6 +151,15 @@
 
 [GPL-3.0](LICENSE) - 修改后必须开源，禁止商业用途。
 
+## 💖 赞助
+
+如果这个项目对你有帮助，可以请作者喝杯咖啡 ☕
+
+<p align="center">
+  <img src="src/assets/donate/wechat.jpg" alt="微信" width="200">
+  <img src="src/assets/donate/alipay.jpg" alt="支付宝" width="200">
+</p>
+
 ---
 
 <p align="center">Made with ❤️ by hj01857655</p>
