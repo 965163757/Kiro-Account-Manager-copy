@@ -15,9 +15,9 @@ jobs:
         include:
           - platform: windows-latest
             target: ''
-          - platform: macos-latest
+          - platform: macos-13
             target: 'x86_64-apple-darwin'
-          - platform: macos-14
+          - platform: macos-latest
             target: 'aarch64-apple-darwin'
           - platform: ubuntu-22.04
             target: ''
