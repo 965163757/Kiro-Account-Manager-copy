@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kiro Account Manager",
+  "version": "1.5.1",
+  "identifier": "com.kiro.account-manager",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 750,
+        "resizable": true,
+        "title": "Kiro Account Manager",
+        "width": 1280,
+        "minWidth": 1100,
+        "minHeight": 650,
+        "visible": false,
+        "center": true,
+        "decorations": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["kiro"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "copyright": "© 2025 hj01857655",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": "all",
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": true,
+        "languages": ["SimpChinese", "English"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "shortDescription": "Kiro 账号管理工具",
+    "longDescription": "管理 Kiro IDE 账号，支持多账号切换和配额监控"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/hj01857655/kiro-account-manager/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGOUFCNTE3RkIwREY5QTcKUldTbitRMzdGN1dhWDhaWi95UGxLSTkrNXZPTEZsWnd1bUtIS3dSOHlLb2Y1SWNBWVUxK3FjK2QK"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Default capabilities for the main window",
+  "windows": ["main", "oauth_google", "oauth_github"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-center",
+    "core:webview:allow-create-webview-window",
+    "shell:allow-open",
+    "process:allow-restart",
+    "opener:default",
+    "updater:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-write-text-file"
+  ]
+}

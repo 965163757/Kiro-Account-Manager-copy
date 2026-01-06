@@ -1,0 +1,48 @@
+[package]
+name = "kiro-account-manager"
+version = "1.5.1"
+description = "Kiro Account Manager"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-deep-link = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1.6", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json", "cookies"] }
+url = "2.5"
+open = "5.0"
+tiny_http = "0.12"
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+urlencoding = "2.1"
+ciborium = "0.2"
+regex = "1.10"
+hex = "0.4"
+cookie = "0.18"
+rusqlite = { version = "0.31", features = ["bundled"] }
+async-trait = "0.1"
+dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

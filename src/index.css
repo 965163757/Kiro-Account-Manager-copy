@@ -1,0 +1,408 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  transition: background-color 0.3s ease;
+}
+
+body.dark {
+  background-color: #0f0f1a;
+  color: #e5e5e5;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+body.dark ::-webkit-scrollbar-thumb {
+  background: #4a4a5a;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+body.dark ::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+.token-label {
+  font-size: 11px;
+  color: #4361ee;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* 主题过渡动画 */
+.theme-transition {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ===== 进场动画 ===== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.5s ease-out forwards;
+}
+
+/* 从右滑入 */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.5s ease-out forwards;
+}
+
+/* 弹性缩放 - 带回弹效果 */
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+/* 模糊渐入 */
+@keyframes blurIn {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: scale(1.1);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+
+.animate-blur-in {
+  animation: blurIn 0.5s ease-out forwards;
+}
+
+/* 旋转渐入 */
+@keyframes rotateIn {
+  from {
+    opacity: 0;
+    transform: rotate(-180deg) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+
+.animate-rotate-in {
+  animation: rotateIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 弹性上浮 */
+@keyframes popUp {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.9);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-5px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-pop-up {
+  animation: popUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 从下渐入（更大幅度） */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s ease-out forwards;
+}
+
+/* 优雅缩放（适合Logo） */
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0) rotate(-10deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+.animate-zoom-in {
+  animation: zoomIn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 交错动画 - 适合列表项 */
+.stagger-item:nth-child(1) { animation-delay: 0.1s; }
+.stagger-item:nth-child(2) { animation-delay: 0.15s; }
+.stagger-item:nth-child(3) { animation-delay: 0.2s; }
+.stagger-item:nth-child(4) { animation-delay: 0.25s; }
+.stagger-item:nth-child(5) { animation-delay: 0.3s; }
+
+/* 延迟动画 */
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }
+
+/* ===== 骨架屏动画 ===== */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, 
+    rgba(255,255,255,0.05) 25%, 
+    rgba(255,255,255,0.15) 50%, 
+    rgba(255,255,255,0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+body:not(.dark) .skeleton {
+  background: linear-gradient(90deg, 
+    rgba(0,0,0,0.06) 25%, 
+    rgba(0,0,0,0.12) 50%, 
+    rgba(0,0,0,0.06) 75%
+  );
+  background-size: 200% 100%;
+}
+
+/* ===== 发光悬停效果 ===== */
+.card-glow {
+  position: relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, transparent 40%, rgba(99, 102, 241, 0.3) 50%, transparent 60%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.card-glow:hover::before {
+  opacity: 1;
+}
+
+.card-glow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px -12px rgba(99, 102, 241, 0.25);
+}
+
+body:not(.dark) .card-glow:hover {
+  box-shadow: 0 12px 40px -12px rgba(99, 102, 241, 0.2);
+}
+
+/* ===== 浮动动画 ===== */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ===== 脉冲光圈效果 ===== */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  position: relative;
+}
+
+.pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  animation: pulse-ring 2s infinite;
+}
+
+/* ===== 数字滚动效果 ===== */
+.stat-number {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.stat-number:hover {
+  transform: scale(1.1);
+}
+
+/* ===== 背景装饰 ===== */
+.bg-glow {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  opacity: 0.15;
+}
+
+.bg-glow-1 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  top: -100px;
+  right: -100px;
+}
+
+.bg-glow-2 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, #06b6d4, #3b82f6);
+  bottom: -50px;
+  left: -50px;
+}
+
+body:not(.dark) .bg-glow {
+  opacity: 0.08;
+}
+
+/* ===== 按钮增强 ===== */
+.btn-icon {
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.btn-icon:hover {
+  transform: scale(1.05);
+}
+
+.btn-icon:active {
+  transform: scale(0.95);
+}
+
+.btn-icon.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
