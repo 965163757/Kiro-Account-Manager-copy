@@ -103,14 +103,6 @@
 ![设置](screenshots/设置.png)
 ![关于](screenshots/关于.png)
 
-## 📥 下载
-
-🌐 **[官网](https://vercel-api-lemon-five.vercel.app)** | 👉 **[GitHub Releases](https://github.com/hj01857655/kiro-account-manager/releases/latest)**
-
-- Windows `.msi` - 推荐，双击安装
-- macOS `.dmg` - 拖入 Applications
-- Linux `.deb` / `.AppImage` - Debian/Ubuntu 或通用
-
 ## 💻 系统要求
 
 - **Windows**: Windows 10/11 (64-bit)，需要 WebView2 (Win11 已内置)
