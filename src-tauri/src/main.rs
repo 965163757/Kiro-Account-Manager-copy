@@ -2,6 +2,7 @@
 
 mod auth;
 mod auth_social;
+mod auto_register;
 mod aws_sso_client;
 mod browser;
 mod codewhisperer_client;
@@ -44,6 +45,7 @@ use commands::sso_import_cmd::*;
 use commands::update_cmd::*;
 use commands::web_oauth_cmd::*;
 use commands::steering_cmd::*;
+use commands::auto_register_cmd::*;
 use kiro::{
     get_kiro_local_token, get_kiro_telemetry_info, reset_kiro_machine_id, switch_kiro_account,
 };
@@ -174,7 +176,29 @@ fn main() {
             get_steering_file,
             save_steering_file,
             delete_steering_file,
-            create_steering_file
+            create_steering_file,
+            // 自动注册命令
+            get_auto_register_config,
+            save_auto_register_config,
+            test_email_connection,
+            test_proxy_connection,
+            detect_chrome,
+            detect_python_env,
+            launch_chrome_incognito,
+            check_roxy_service,
+            get_registration_progress,
+            start_auto_register,
+            stop_auto_register,
+            get_registration_history,
+            add_registration_record,
+            clear_registration_history,
+            export_registration_history,
+            // 脚本管理命令
+            get_script_content,
+            save_script_content,
+            get_script_path_cmd,
+            reset_script_to_default,
+            open_script_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

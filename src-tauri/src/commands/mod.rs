@@ -3,6 +3,7 @@
 pub mod account_cmd;
 pub mod app_settings_cmd;
 pub mod auth_cmd;
+pub mod auto_register_cmd;
 
 pub mod kiro_settings_cmd;
 pub mod machine_guid_cmd;
