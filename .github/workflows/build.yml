@@ -23,7 +23,7 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             name: macOS ARM64 (Apple Silicon)
-          - platform: macos-13
+          - platform: macos-15-large
             target: x86_64-apple-darwin
             name: macOS x64 (Intel)
           - platform: ubuntu-22.04
@@ -74,10 +74,10 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: |
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/*/release/bundle/**/*.dmg
-            src-tauri/target/*/release/bundle/**/*.app
-            src-tauri/target/*/release/bundle/**/*.AppImage
-            src-tauri/target/*/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
           if-no-files-found: warn
