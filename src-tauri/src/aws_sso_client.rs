@@ -3,7 +3,7 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use crate::proxy_utils::create_http_client;
 
 /// AWS SSO OIDC 客户端
 pub struct AWSSSOClient {
@@ -53,10 +53,7 @@ pub struct TokenResponse {
 impl AWSSSOClient {
     pub fn new(region: &str) -> Self {
         let base_url = format!("https://oidc.{}.amazonaws.com", region);
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to create HTTP client");
+        let client = create_http_client();
 
         Self {
             region: region.to_string(),

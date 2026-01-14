@@ -10,8 +10,6 @@ import About from './components/About'
 import Login from './components/Login'
 import WebOAuthLogin from './components/WebOAuthLogin'
 import AuthCallback from './components/AuthCallback'
-import UpdateChecker from './components/UpdateChecker'
-
 import { useTheme } from './contexts/ThemeContext'
 
 // 默认自动刷新间隔：50分钟
@@ -222,7 +220,6 @@ function App() {
         {renderContent()}
       </main>
       
-      <UpdateChecker />
     </div>
   )
 }

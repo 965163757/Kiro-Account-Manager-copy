@@ -13,6 +13,8 @@ pub struct AppSettings {
     pub auto_refresh_interval: Option<i32>,
     pub auto_change_machine_id: Option<bool>,
     pub browser_path: Option<String>,
+    // 代理设置
+    pub proxy: Option<String>,  // HTTP 代理地址，如 http://127.0.0.1:7890
     // 账户机器码绑定功能
     pub bind_machine_id_to_account: Option<bool>,  // 是否启用账户绑定机器码
     pub use_bound_machine_id: Option<bool>,        // 切换时使用绑定的机器码（否则随机生成）
@@ -60,6 +62,7 @@ fn save_app_settings_inner(updates: AppSettings) -> Result<(), String> {
     if updates.auto_refresh_interval.is_some() { current.auto_refresh_interval = updates.auto_refresh_interval; }
     if updates.auto_change_machine_id.is_some() { current.auto_change_machine_id = updates.auto_change_machine_id; }
     if updates.browser_path.is_some() { current.browser_path = updates.browser_path; }
+    if updates.proxy.is_some() { current.proxy = updates.proxy; }
     if updates.bind_machine_id_to_account.is_some() { current.bind_machine_id_to_account = updates.bind_machine_id_to_account; }
     if updates.use_bound_machine_id.is_some() { current.use_bound_machine_id = updates.use_bound_machine_id; }
     if updates.account_machine_ids.is_some() { current.account_machine_ids = updates.account_machine_ids; }

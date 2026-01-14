@@ -25,7 +25,17 @@ pub struct VerifyAccountResponse {
 
 #[tauri::command]
 pub fn get_accounts(state: State<AppState>) -> Vec<Account> {
-    state.store.lock().unwrap().get_all()
+    // 每次获取账号时都从文件重新加载，确保与外部修改同步
+    let mut store = state.store.lock().unwrap();
+    store.reload_from_file();
+    store.get_all()
+}
+
+#[tauri::command]
+pub fn reload_accounts(state: State<AppState>) -> Vec<Account> {
+    let mut store = state.store.lock().unwrap();
+    store.reload_from_file();
+    store.get_all()
 }
 
 #[tauri::command]

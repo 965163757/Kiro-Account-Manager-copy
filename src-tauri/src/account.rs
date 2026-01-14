@@ -101,6 +101,11 @@ impl AccountStore {
         }
     }
 
+    /// 从文件重新加载账号列表
+    pub fn reload_from_file(&mut self) {
+        self.accounts = Self::load_from_file(&self.file_path);
+    }
+
     pub fn get_all(&self) -> Vec<Account> {
         self.accounts.clone()
     }

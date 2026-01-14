@@ -3,8 +3,8 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use uuid::Uuid;
+use crate::proxy_utils::create_http_client;
 
 const CODEWHISPERER_API: &str = "https://codewhisperer.us-east-1.amazonaws.com";
 
@@ -97,10 +97,7 @@ pub struct CodeWhispererClient {
 
 impl CodeWhispererClient {
     pub fn new(machine_id: &str) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to create HTTP client");
+        let client = create_http_client();
 
         Self {
             client,

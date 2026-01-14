@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Loader, ArrowRight, X } from 'lucide-react'
+import { Loader, ArrowRight, X, Copy, Check, ExternalLink } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useI18n } from '../i18n.jsx'
 
@@ -11,19 +11,81 @@ function Login({ onLogin }) {
   const isDark = theme === 'dark'
   const [loadingProvider, setLoadingProvider] = useState(null)
   const [error, setError] = useState('')
+  const [deviceAuthUrl, setDeviceAuthUrl] = useState(null)
+  const [deviceAuthInfo, setDeviceAuthInfo] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const pollIntervalRef = useRef(null)
 
   useEffect(() => {
     const unlistenSuccess = listen('login-success', (event) => {
       console.log('Login success event:', event.payload)
       setLoadingProvider(null)
+      setDeviceAuthUrl(null)
+      setDeviceAuthInfo(null)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
       onLogin?.(event.payload)
     })
-    return () => { unlistenSuccess.then(fn => fn()) }
+    return () => { 
+      unlistenSuccess.then(fn => fn())
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
   }, [onLogin])
 
   const handleLogin = async (provider) => {
     setLoadingProvider(provider)
     setError('')
+    
+    // BuilderId 使用特殊流程：先获取 URL 展示给用户
+    if (provider === 'BuilderId') {
+      try {
+        const authInfo = await invoke('get_device_auth_url', { region: 'us-east-1' })
+        const url = authInfo.verification_uri_complete || authInfo.verification_uri
+        setDeviceAuthUrl(url)
+        setDeviceAuthInfo(authInfo)
+        
+        // 开始轮询
+        pollIntervalRef.current = setInterval(async () => {
+          try {
+            const result = await invoke('poll_device_auth', {
+              deviceCode: authInfo.device_code,
+              clientId: authInfo.client_id,
+              clientSecret: authInfo.client_secret,
+              region: 'us-east-1'
+            })
+            if (result.startsWith('success:')) {
+              // 登录成功，login-success 事件会处理清理
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            // pending 和 slow_down 继续轮询
+          } catch (e) {
+            // expired 或 denied
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+            // 后端在 expired/denied 时已经清除了 URL，但为确保一致性再调用一次
+            invoke('clear_device_auth_url').catch(() => {})
+            setError(typeof e === 'string' ? e : t('login.failed'))
+            setLoadingProvider(null)
+            setDeviceAuthUrl(null)
+            setDeviceAuthInfo(null)
+          }
+        }, (authInfo.interval || 5) * 1000)
+        
+        return
+      } catch (e) {
+        console.error('Get device auth URL error:', e)
+        setError(typeof e === 'string' ? e : e.message || t('login.failed'))
+        setLoadingProvider(null)
+        return
+      }
+    }
+    
+    // 其他提供商使用原有流程
     try {
       await invoke('kiro_login', { provider })
     } catch (e) {
@@ -33,9 +95,35 @@ function Login({ onLogin }) {
     }
   }
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+    // 通知后端清除设备授权 URL
+    try {
+      await invoke('clear_device_auth_url')
+    } catch (e) {
+      console.error('Failed to clear device auth URL:', e)
+    }
     setLoadingProvider(null)
+    setDeviceAuthUrl(null)
+    setDeviceAuthInfo(null)
     setError('')
+  }
+
+  const handleCopyUrl = async () => {
+    if (deviceAuthUrl) {
+      await navigator.clipboard.writeText(deviceAuthUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const handleOpenUrl = () => {
+    if (deviceAuthUrl) {
+      window.open(deviceAuthUrl, '_blank')
+    }
   }
 
   const providers = [
@@ -118,6 +206,41 @@ function Login({ onLogin }) {
               </span>
             </button>
           ))}
+
+          {/* BuilderId URL 显示区域 */}
+          {loadingProvider === 'BuilderId' && deviceAuthUrl && (
+            <div className={`p-4 rounded-xl ${isDark ? 'bg-orange-500/10 border-orange-500/20' : 'bg-orange-50 border-orange-200'} border`}>
+              <p className={`text-sm ${colors.text} mb-2 font-medium`}>{t('login.builderIdUrl')}</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={deviceAuthUrl}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs ${isDark ? 'bg-black/20 text-white/90' : 'bg-white text-gray-700'} border ${isDark ? 'border-white/10' : 'border-gray-200'}`}
+                />
+                <button
+                  onClick={handleCopyUrl}
+                  className={`px-3 py-2 rounded-lg ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-gray-100 hover:bg-gray-200'} transition-colors`}
+                  title={t('common.copy')}
+                >
+                  {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} className={colors.text} />}
+                </button>
+                <button
+                  onClick={handleOpenUrl}
+                  className={`px-3 py-2 rounded-lg ${isDark ? 'bg-orange-500/20 hover:bg-orange-500/30' : 'bg-orange-100 hover:bg-orange-200'} transition-colors`}
+                  title={t('login.openInBrowser')}
+                >
+                  <ExternalLink size={16} className="text-orange-500" />
+                </button>
+              </div>
+              {deviceAuthInfo?.user_code && (
+                <p className={`text-xs ${colors.textMuted} mt-2`}>
+                  {t('login.userCode')}: <span className="font-mono font-bold">{deviceAuthInfo.user_code}</span>
+                </p>
+              )}
+              <p className={`text-xs ${colors.textMuted} mt-1`}>{t('login.builderIdTip')}</p>
+            </div>
+          )}
 
           {/* 取消按钮 */}
           {loadingProvider && (

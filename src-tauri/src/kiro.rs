@@ -341,8 +341,8 @@ fn generate_dev_device_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// 重置机器 ID（内部函数）
-fn reset_kiro_machine_id_inner() -> Result<KiroTelemetryInfo, String> {
+/// 重置机器 ID（内部函数，公开供其他模块使用）
+pub fn reset_kiro_machine_id_inner() -> Result<KiroTelemetryInfo, String> {
     let kiro_dir = get_kiro_data_dir()
         .ok_or("Cannot find Kiro data directory")?;
     

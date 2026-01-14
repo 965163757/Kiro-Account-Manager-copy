@@ -1,6 +1,7 @@
 // Auth 相关命令 - 直接存储 usage_data
 
 use tauri::{Emitter, State};
+use serde::Serialize;
 use crate::state::AppState;
 use crate::account::Account;
 use crate::auth::{User, get_usage_limits_desktop};
@@ -8,6 +9,20 @@ use crate::auth_social;
 use crate::codewhisperer_client::CodeWhispererClient;
 use crate::providers::{AuthMethod, AuthProvider, get_provider_config, create_social_provider, create_idc_provider};
 use crate::kiro::get_machine_id;
+use crate::aws_sso_client::AWSSSOClient;
+
+/// 设备授权信息（用于自动注册）
+#[derive(Debug, Serialize)]
+pub struct DeviceAuthInfo {
+    pub verification_uri: String,
+    pub verification_uri_complete: Option<String>,
+    pub user_code: String,
+    pub device_code: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub expires_in: i64,
+    pub interval: i64,
+}
 
 #[tauri::command]
 pub fn get_current_user(state: State<AppState>) -> Option<User> {
@@ -16,9 +31,12 @@ pub fn get_current_user(state: State<AppState>) -> Option<User> {
 
 #[tauri::command]
 pub fn logout(state: State<AppState>) {
+    use crate::state::CURRENT_DEVICE_AUTH_URL;
+
     *state.auth.user.lock().unwrap() = None;
     *state.auth.csrf_token.lock().unwrap() = None;
     *state.auth.access_token.lock().unwrap() = None;
+    *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = None;
 }
 
 #[tauri::command]
@@ -326,4 +344,160 @@ pub async fn add_kiro_account(
 #[tauri::command]
 pub fn get_supported_providers() -> Vec<&'static str> {
     crate::providers::get_supported_providers()
+}
+
+/// 清除设备授权 URL（用于取消登录或超时）
+#[tauri::command]
+pub fn clear_device_auth_url() {
+    use crate::state::CURRENT_DEVICE_AUTH_URL;
+    *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = None;
+}
+
+
+/// 获取 BuilderId 设备授权 URL（不打开浏览器，不轮询）
+/// 用于自动注册脚本
+#[tauri::command]
+pub async fn get_device_auth_url(region: Option<String>) -> Result<DeviceAuthInfo, String> {
+    use crate::state::CURRENT_DEVICE_AUTH_URL;
+    
+    let region = region.as_deref().unwrap_or("us-east-1");
+    let start_url = "https://view.awsapps.com/start";
+    
+    println!("[DeviceAuth] Getting device auth URL (region: {})", region);
+    
+    let sso_client = AWSSSOClient::new(region);
+    
+    // Step 1: 注册客户端
+    let client_reg = sso_client.register_device_client(start_url).await?;
+    println!("[DeviceAuth] Client registered: {}", &client_reg.client_id);
+    
+    // Step 2: 发起设备授权
+    let device_auth = sso_client.start_device_authorization(
+        &client_reg.client_id,
+        &client_reg.client_secret,
+        start_url,
+    ).await?;
+    
+    let url = device_auth.verification_uri_complete.clone()
+        .unwrap_or_else(|| device_auth.verification_uri.clone());
+    
+    println!("[DeviceAuth] URL: {}", url);
+    println!("[DeviceAuth] User Code: {}", device_auth.user_code);
+    
+    // 更新全局状态，供 HTTP 服务使用
+    *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = Some(url);
+    
+    Ok(DeviceAuthInfo {
+        verification_uri: device_auth.verification_uri,
+        verification_uri_complete: device_auth.verification_uri_complete,
+        user_code: device_auth.user_code,
+        device_code: device_auth.device_code,
+        client_id: client_reg.client_id,
+        client_secret: client_reg.client_secret,
+        expires_in: device_auth.expires_in,
+        interval: device_auth.interval.unwrap_or(5),
+    })
+}
+
+/// 使用 device_code 轮询获取 token（配合 get_device_auth_url 使用）
+#[tauri::command]
+pub async fn poll_device_auth(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    device_code: String,
+    client_id: String,
+    client_secret: String,
+    region: Option<String>,
+) -> Result<String, String> {
+    use crate::aws_sso_client::DevicePollResult;
+    use crate::state::CURRENT_DEVICE_AUTH_URL;
+    use sha2::{Digest, Sha256};
+    
+    let region = region.as_deref().unwrap_or("us-east-1");
+    let start_url = "https://view.awsapps.com/start";
+    
+    let sso_client = AWSSSOClient::new(region);
+    
+    // 单次轮询
+    match sso_client.poll_device_token(&client_id, &client_secret, &device_code).await? {
+        DevicePollResult::Success(token) => {
+            println!("[DeviceAuth] Authorization successful!");
+            
+            // 清除全局 URL
+            *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = None;
+            
+            // 计算 client_id_hash
+            let mut hasher = Sha256::new();
+            hasher.update(start_url.as_bytes());
+            let client_id_hash = hex::encode(hasher.finalize());
+            
+            // 获取用户信息
+            let machine_id = get_machine_id();
+            let cw_client = CodeWhispererClient::new(&machine_id);
+            let usage = cw_client.get_usage_limits(&token.access_token).await.ok();
+            let usage_data = serde_json::to_value(&usage).unwrap_or(serde_json::Value::Null);
+            
+            let email = usage.as_ref()
+                .and_then(|u| u.user_info.as_ref())
+                .and_then(|ui| ui.email.clone())
+                .unwrap_or_else(|| "user@builder.id".to_string());
+            let user_id = usage.as_ref()
+                .and_then(|u| u.user_info.as_ref())
+                .and_then(|ui| ui.user_id.clone());
+            
+            let expires_at = chrono::Local::now() + chrono::Duration::seconds(token.expires_in);
+            
+            // 保存账号
+            let mut store = state.store.lock().unwrap();
+            let account = if let Some(existing) = store.accounts.iter_mut()
+                .find(|a| a.email == email && a.provider.as_deref() == Some("BuilderId")) 
+            {
+                existing.access_token = Some(token.access_token.clone());
+                existing.refresh_token = Some(token.refresh_token.clone());
+                existing.user_id = user_id;
+                existing.expires_at = Some(expires_at.format("%Y/%m/%d %H:%M:%S").to_string());
+                existing.client_id_hash = Some(client_id_hash);
+                existing.client_id = Some(client_id);
+                existing.client_secret = Some(client_secret);
+                existing.region = Some(region.to_string());
+                existing.sso_session_id = token.aws_sso_app_session_id;
+                existing.id_token = token.id_token;
+                existing.usage_data = Some(usage_data);
+                existing.status = "正常".to_string();
+                existing.clone()
+            } else {
+                let mut account = Account::new(email.clone(), "Kiro BuilderId 账号".to_string());
+                account.access_token = Some(token.access_token.clone());
+                account.refresh_token = Some(token.refresh_token.clone());
+                account.provider = Some("BuilderId".to_string());
+                account.user_id = user_id;
+                account.expires_at = Some(expires_at.format("%Y/%m/%d %H:%M:%S").to_string());
+                account.client_id_hash = Some(client_id_hash);
+                account.client_id = Some(client_id);
+                account.client_secret = Some(client_secret);
+                account.region = Some(region.to_string());
+                account.sso_session_id = token.aws_sso_app_session_id;
+                account.id_token = token.id_token;
+                account.usage_data = Some(usage_data);
+                store.accounts.insert(0, account.clone());
+                account
+            };
+            
+            store.save_to_file();
+            drop(store);
+            
+            let _ = app_handle.emit("login-success", account.id.clone());
+            Ok(format!("success:{}", email))
+        }
+        DevicePollResult::Pending => Ok("pending".to_string()),
+        DevicePollResult::SlowDown => Ok("slow_down".to_string()),
+        DevicePollResult::Expired => {
+            *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = None;
+            Err("expired".to_string())
+        }
+        DevicePollResult::Denied => {
+            *CURRENT_DEVICE_AUTH_URL.lock().unwrap() = None;
+            Err("denied".to_string())
+        }
+    }
 }

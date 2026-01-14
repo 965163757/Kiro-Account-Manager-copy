@@ -7,6 +7,7 @@ mod browser;
 mod codewhisperer_client;
 mod commands;
 mod deep_link_handler;
+mod http_server;
 
 mod kiro;
 mod kiro_auth_client;
@@ -14,6 +15,7 @@ mod mcp;
 mod powers;
 mod process;
 mod providers;
+mod proxy_utils;
 mod state;
 mod steering;
 mod account;
@@ -27,7 +29,7 @@ use tauri::{Listener, Manager};
 // 导入命令
 use browser::detect_installed_browsers;
 use commands::account_cmd::{
-    get_accounts, delete_account, delete_accounts, update_account, sync_account,
+    get_accounts, reload_accounts, delete_account, delete_accounts, update_account, sync_account,
     refresh_account_token, verify_account, add_account_by_social, add_local_kiro_account,
     add_account_by_idc, import_accounts, export_accounts
 };
@@ -57,6 +59,9 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            // 启动 HTTP 服务器
+            http_server::start_http_server();
+            
             // 监听 deep link 事件 (使用 kiro:// 协议)
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
             {
@@ -87,6 +92,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             // 账号命令
             get_accounts,
+            reload_accounts,
             delete_account,
             delete_accounts,
             update_account,
@@ -105,6 +111,9 @@ fn main() {
             get_supported_providers,
             handle_kiro_social_callback,
             add_kiro_account,
+            get_device_auth_url,
+            poll_device_auth,
+            clear_device_auth_url,
             // Kiro IDE 命令
             get_kiro_local_token,
             switch_kiro_account,
