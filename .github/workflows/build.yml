@@ -1,7 +1,13 @@
-name: Build (Fork)
+name: Build All Platforms
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
@@ -12,16 +18,29 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-          - platform: macos-latest
-            target: x86_64-apple-darwin
+            target: x86_64-pc-windows-msvc
+            name: Windows x64
           - platform: macos-latest
             target: aarch64-apple-darwin
+            name: macOS ARM64 (Apple Silicon)
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            name: macOS x64 (Intel)
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            name: Linux x64
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -43,7 +62,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Build (${{ matrix.name }})
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,9 +72,12 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.platform }}-${{ matrix.target || 'default' }}
+          name: ${{ matrix.name }}
           path: |
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/*/release/bundle/**/*.dmg
+            src-tauri/target/*/release/bundle/**/*.app
+            src-tauri/target/*/release/bundle/**/*.AppImage
+            src-tauri/target/*/release/bundle/**/*.deb
           if-no-files-found: warn

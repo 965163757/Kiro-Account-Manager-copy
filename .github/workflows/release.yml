@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   release:
@@ -14,23 +15,23 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            target: ''
-          - platform: macos-15-intel
-            target: 'x86_64-apple-darwin'
+            target: x86_64-pc-windows-msvc
+            name: Windows x64
           - platform: macos-latest
-            target: 'aarch64-apple-darwin'
+            target: aarch64-apple-darwin
+            name: macOS ARM64
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            name: macOS Intel
           - platform: ubuntu-22.04
-            target: ''
+            target: x86_64-unknown-linux-gnu
+            name: Linux x64
 
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Checkout from private repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: ${{ secrets.PRIVATE_REPO }}
-          ref: ${{ secrets.PRIVATE_REPO_REF }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -42,6 +43,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -55,22 +57,18 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install dependencies
-        shell: bash
-        run: |
-          rm -rf node_modules package-lock.json
-          npm install
+        run: npm ci
 
-      - name: Build and release
+      - name: Build and release (${{ matrix.name }})
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Linux AppImage 使用 gzip 压缩，兼容旧版 AppImageLauncher
           APPIMAGETOOL_COMP: ${{ matrix.platform == 'ubuntu-22.04' && 'gzip' || '' }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'Kiro Account Manager v__VERSION__'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Kiro Account Manager ${{ github.ref_name }}'
           releaseBody: '请查看 CHANGELOG 了解更新内容。'
           releaseDraft: false
           prerelease: false
@@ -85,16 +83,16 @@ jobs:
     steps:
       - name: Download latest.json
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          curl -L -o latest.json "https://github.com/hj01857655/kiro-account-manager/releases/download/${VERSION}/latest.json"
+          VERSION=${{ github.ref_name }}
+          curl -L -o latest.json "https://github.com/${{ github.repository }}/releases/download/${VERSION}/latest.json"
           cat latest.json
 
       - name: Generate latest-deb.json
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${{ github.ref_name }}
           # 读取 latest.json 并修改 linux-x86_64 平台的 URL 为 deb
-          jq --arg ver "$VERSION" '
-            .platforms["linux-x86_64"].url = "https://github.com/hj01857655/kiro-account-manager/releases/download/\($ver)/Kiro.Account.Manager_\($ver | ltrimstr("v"))_amd64.deb" |
+          jq --arg ver "$VERSION" --arg repo "${{ github.repository }}" '
+            .platforms["linux-x86_64"].url = "https://github.com/\($repo)/releases/download/\($ver)/Kiro.Account.Manager_\($ver | ltrimstr("v"))_amd64.deb" |
             .platforms["linux-x86_64"].signature = (.platforms["linux-x86_64"].signature // "")
           ' latest.json > latest-deb.json
           cat latest-deb.json
@@ -103,5 +101,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          gh release upload "$VERSION" latest-deb.json --clobber -R hj01857655/kiro-account-manager
+          VERSION=${{ github.ref_name }}
+          gh release upload "$VERSION" latest-deb.json --clobber -R ${{ github.repository }}
