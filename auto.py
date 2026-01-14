@@ -23,11 +23,12 @@ from brower import RoxyClient
 # 配置区域
 # ============================================================
 
-# 邮箱配置
+# 邮箱配置 - 请通过环境变量设置
+import os
 EMAIL_CONFIG = {
-    "imap_server": "imap.example.com",
-    "email": "your-email@example.com",
-    "password": "your-password",
+    "imap_server": os.getenv("EMAIL_IMAP_SERVER", "imap.example.com"),
+    "email": os.getenv("EMAIL_ADDRESS", "your-email@example.com"),
+    "password": os.getenv("EMAIL_PASSWORD", "your-password"),
     "timeout": 180,  # 3分钟超时
     "poll_interval": 5,  # 每5秒检查一次
 }

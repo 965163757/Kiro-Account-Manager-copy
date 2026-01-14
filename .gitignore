@@ -25,6 +25,9 @@ src-tauri/target/
 # Logs
 *.log
 
+# Environment variables
+.env
+
 # Docs (internal)
 docs/
 
