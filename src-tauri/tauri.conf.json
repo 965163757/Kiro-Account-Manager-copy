@@ -43,7 +43,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "category": "DeveloperTool",
     "copyright": "© 2025 hj01857655",
     "icon": [
