@@ -6,6 +6,9 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use uuid::Uuid;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// 全局自动注册状态
 pub static AUTO_REGISTER_STATE: Mutex<Option<AutoRegisterState>> = Mutex::new(None);
 
@@ -37,6 +40,15 @@ impl Default for AutoRegisterState {
             pending_email: None,
         }
     }
+}
+
+/// 创建静默进程命令（Windows 下不弹出控制台窗口）
+fn silent_command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
 }
 
 /// 完整的自动注册配置
@@ -558,7 +570,7 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
     // 如果提供了自定义路径，优先使用
     if let Some(path) = custom_path {
         if !path.is_empty() {
-            let result = std::process::Command::new(path)
+            let result = silent_command(path)
                 .arg("--version")
                 .output();
             
@@ -663,7 +675,7 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
     
     // 尝试每个命令
     for cmd in &commands {
-        let result = std::process::Command::new(cmd)
+        let result = silent_command(cmd)
             .arg("--version")
             .output();
         
@@ -677,7 +689,7 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
     // Windows 额外检查：通过 where 命令查找
     #[cfg(target_os = "windows")]
     {
-        if let Ok(output) = std::process::Command::new("where")
+        if let Ok(output) = silent_command("where")
             .arg("python")
             .output()
         {
@@ -697,7 +709,7 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
     #[cfg(not(target_os = "windows"))]
     {
         for python_cmd in &["python3", "python"] {
-            if let Ok(output) = std::process::Command::new("which")
+            if let Ok(output) = silent_command("which")
                 .arg(python_cmd)
                 .output()
             {
@@ -716,7 +728,7 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
 
 /// 获取 Python 版本信息
 pub fn get_python_version(python_path: &str) -> Option<String> {
-    let result = std::process::Command::new(python_path)
+    let result = silent_command(python_path)
         .arg("--version")
         .output();
     

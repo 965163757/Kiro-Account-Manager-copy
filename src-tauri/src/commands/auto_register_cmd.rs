@@ -25,6 +25,15 @@ fn get_store() -> std::sync::MutexGuard<'static, Option<AutoRegisterConfigStore>
     store
 }
 
+/// 创建静默进程命令（Windows 下不弹出控制台窗口）
+fn silent_command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
 // ============================================================
 // 配置管理命令
 // ============================================================
@@ -187,9 +196,8 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     {
         for cmd in &["python", "python3", "py"] {
-            if let Ok(output) = std::process::Command::new("where")
+            if let Ok(output) = silent_command("where")
                 .arg(cmd)
-                .creation_flags(0x08000000)
                 .output()
             {
                 if output.status.success() {
@@ -209,7 +217,7 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     #[cfg(not(target_os = "windows"))]
     {
         for cmd in &["python3", "python"] {
-            if let Ok(output) = std::process::Command::new("which")
+            if let Ok(output) = silent_command("which")
                 .arg("-a")
                 .arg(cmd)
                 .output()
@@ -269,14 +277,7 @@ fn extract_major_version(version: &str) -> String {
 
 /// 快速获取 Python 版本
 fn get_python_version_fast(python_path: &str) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new(python_path)
-        .arg("--version")
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output();
-    
-    #[cfg(not(target_os = "windows"))]
-    let result = std::process::Command::new(python_path)
+    let result = silent_command(python_path)
         .arg("--version")
         .output();
     
