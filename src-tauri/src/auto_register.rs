@@ -20,6 +20,8 @@ pub struct AutoRegisterState {
     pub current_step: String,
     pub logs: Vec<String>,
     pub error: Option<String>,
+    #[serde(skip)]
+    pub pending_email: Option<String>,  // 待保存的邮箱（等待密码日志）
 }
 
 impl Default for AutoRegisterState {
@@ -32,6 +34,7 @@ impl Default for AutoRegisterState {
             current_step: String::new(),
             logs: Vec::new(),
             error: None,
+            pending_email: None,
         }
     }
 }
@@ -568,31 +571,98 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
         }
     }
     
-    // 自动检测
-    let commands = if cfg!(target_os = "windows") {
-        vec![
-            "python",
-            "python3",
-            "py",
-            // Windows 常见安装路径
-            r"C:\Python313\python.exe",
-            r"C:\Python312\python.exe",
-            r"C:\Python311\python.exe",
-            r"C:\Python310\python.exe",
-            r"C:\Python39\python.exe",
-        ]
-    } else {
-        vec![
-            "python3",
-            "python",
-            // macOS/Linux 常见路径
-            "/usr/bin/python3",
-            "/usr/local/bin/python3",
-            "/opt/homebrew/bin/python3",
-        ]
-    };
+    // 获取用户主目录
+    let home_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     
-    for cmd in commands {
+    // 自动检测 - 构建候选路径列表
+    let mut commands: Vec<String> = Vec::new();
+    
+    if cfg!(target_os = "windows") {
+        // Windows: 基础命令
+        commands.extend(vec![
+            "python".to_string(),
+            "python3".to_string(),
+            "py".to_string(),
+        ]);
+        
+        // Windows: 常见安装路径（多版本支持）
+        for version in &["313", "312", "311", "310", "39", "38"] {
+            commands.push(format!(r"C:\Python{}\python.exe", version));
+            commands.push(format!(r"C:\Program Files\Python{}\python.exe", version));
+            commands.push(format!(r"C:\Program Files (x86)\Python{}\python.exe", version));
+            // 用户目录下的安装
+            if !home_dir.is_empty() {
+                commands.push(format!(r"{}\AppData\Local\Programs\Python\Python{}\python.exe", home_dir, version));
+            }
+        }
+        
+        // Windows: pyenv-win 路径
+        if !home_dir.is_empty() {
+            // pyenv shims
+            commands.push(format!(r"{}\.pyenv\pyenv-win\shims\python.exe", home_dir));
+            commands.push(format!(r"{}\.pyenv\pyenv-win\shims\python3.exe", home_dir));
+            // pyenv versions (检查具体版本)
+            for version in &["3.13", "3.12", "3.11", "3.10", "3.9"] {
+                for minor in 0..=20 {
+                    commands.push(format!(r"{}\.pyenv\pyenv-win\versions\{}.{}\python.exe", home_dir, version, minor));
+                }
+            }
+            
+            // conda 路径
+            commands.push(format!(r"{}\Anaconda3\python.exe", home_dir));
+            commands.push(format!(r"{}\miniconda3\python.exe", home_dir));
+            commands.push(format!(r"{}\anaconda3\python.exe", home_dir));
+            commands.push(format!(r"{}\Miniconda3\python.exe", home_dir));
+        }
+    } else {
+        // macOS/Linux: 基础命令
+        commands.extend(vec![
+            "python3".to_string(),
+            "python".to_string(),
+        ]);
+        
+        // macOS/Linux: 系统路径
+        commands.extend(vec![
+            "/usr/bin/python3".to_string(),
+            "/usr/local/bin/python3".to_string(),
+            "/opt/homebrew/bin/python3".to_string(),
+        ]);
+        
+        // macOS/Linux: 多版本 Python
+        for version in &["3.13", "3.12", "3.11", "3.10", "3.9", "3.8"] {
+            commands.push(format!("/usr/bin/python{}", version));
+            commands.push(format!("/usr/local/bin/python{}", version));
+            commands.push(format!("/opt/homebrew/bin/python{}", version));
+        }
+        
+        // macOS/Linux: pyenv 路径
+        if !home_dir.is_empty() {
+            // pyenv shims
+            commands.push(format!("{}/.pyenv/shims/python", home_dir));
+            commands.push(format!("{}/.pyenv/shims/python3", home_dir));
+            // pyenv versions (检查具体版本)
+            for version in &["3.13", "3.12", "3.11", "3.10", "3.9"] {
+                for minor in 0..=20 {
+                    commands.push(format!("{}/.pyenv/versions/{}.{}/bin/python", home_dir, version, minor));
+                }
+            }
+            
+            // conda 路径
+            commands.push(format!("{}/anaconda3/bin/python", home_dir));
+            commands.push(format!("{}/miniconda3/bin/python", home_dir));
+            commands.push(format!("{}/mambaforge/bin/python", home_dir));
+            commands.push(format!("{}/miniforge3/bin/python", home_dir));
+            
+            // asdf 路径
+            commands.push(format!("{}/.asdf/shims/python", home_dir));
+            commands.push(format!("{}/.asdf/shims/python3", home_dir));
+        }
+    }
+    
+    // 尝试每个命令
+    for cmd in &commands {
         let result = std::process::Command::new(cmd)
             .arg("--version")
             .output();
@@ -626,14 +696,16 @@ pub fn detect_python_with_path(custom_path: Option<&str>) -> Result<String, Stri
     // macOS/Linux 额外检查：通过 which 命令查找
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(output) = std::process::Command::new("which")
-            .arg("python3")
-            .output()
-        {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    return Ok(path);
+        for python_cmd in &["python3", "python"] {
+            if let Ok(output) = std::process::Command::new("which")
+                .arg(python_cmd)
+                .output()
+            {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() {
+                        return Ok(path);
+                    }
                 }
             }
         }

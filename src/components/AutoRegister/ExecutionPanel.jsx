@@ -2,16 +2,16 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Play, Square, RefreshCw, Clock, Hash, Terminal, AlertTriangle, CheckCircle } from 'lucide-react'
 
-function ExecutionPanel({ 
-  config, 
-  isRunning, 
-  setIsRunning, 
-  progress, 
-  logs, 
-  setLogs, 
+function ExecutionPanel({
+  config,
+  isRunning,
+  setIsRunning,
+  progress,
+  logs,
+  setLogs,
   logsEndRef,
-  colors, 
-  isDark, 
+  colors,
+  isDark,
   t,
   showError,
   showSuccess,
@@ -43,6 +43,13 @@ function ExecutionPanel({
     setStarting(true)
     setLogs([])
     try {
+      // 先重置状态，清除之前的错误状态
+      try {
+        await invoke('reset_auto_register_state')
+      } catch (e) {
+        // 忽略重置失败（可能是首次运行没有状态）
+        console.log('Reset state skipped:', e)
+      }
       await invoke('start_auto_register', { count, interval })
       setIsRunning(true)
     } catch (err) {
@@ -184,7 +191,7 @@ function ExecutionPanel({
                   <span className={colors.text}>{progress.current_index} / {progress.total_count}</span>
                 </div>
                 <div className={`h-2 rounded-full ${isDark ? 'bg-white/10' : 'bg-gray-200'}`}>
-                  <div 
+                  <div
                     className="h-full bg-blue-500 rounded-full transition-all duration-300"
                     style={{ width: `${(progress.current_index / progress.total_count) * 100}%` }}
                   />

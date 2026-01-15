@@ -144,6 +144,204 @@ pub fn detect_python_env(custom_path: Option<String>) -> Result<serde_json::Valu
     }))
 }
 
+/// 检测所有可用的 Python 版本
+#[tauri::command]
+pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
+    use std::collections::HashSet;
+    
+    let home_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    
+    let mut found_pythons: Vec<(String, String)> = Vec::new();
+    let mut seen_paths: HashSet<String> = HashSet::new();
+    
+    // 构建候选路径列表
+    let mut candidates: Vec<String> = Vec::new();
+    
+    if cfg!(target_os = "windows") {
+        // Windows: 基础命令
+        candidates.extend(vec![
+            "python".to_string(),
+            "python3".to_string(),
+            "py".to_string(),
+        ]);
+        
+        // Windows: 常见安装路径
+        for version in &["313", "312", "311", "310", "39", "38"] {
+            candidates.push(format!(r"C:\Python{}\python.exe", version));
+            candidates.push(format!(r"C:\Program Files\Python{}\python.exe", version));
+            if !home_dir.is_empty() {
+                candidates.push(format!(r"{}\AppData\Local\Programs\Python\Python{}\python.exe", home_dir, version));
+            }
+        }
+        
+        // Windows: pyenv-win
+        if !home_dir.is_empty() {
+            candidates.push(format!(r"{}\.pyenv\pyenv-win\shims\python.exe", home_dir));
+        }
+        
+        // Windows: conda
+        if !home_dir.is_empty() {
+            candidates.push(format!(r"{}\Anaconda3\python.exe", home_dir));
+            candidates.push(format!(r"{}\miniconda3\python.exe", home_dir));
+        }
+    } else {
+        // macOS/Linux: 基础命令
+        candidates.extend(vec![
+            "python3".to_string(),
+            "python".to_string(),
+        ]);
+        
+        // macOS/Linux: 系统路径 + 多版本
+        for version in &["3.13", "3.12", "3.11", "3.10", "3.9", "3.8"] {
+            candidates.push(format!("/usr/bin/python{}", version));
+            candidates.push(format!("/usr/local/bin/python{}", version));
+            candidates.push(format!("/opt/homebrew/bin/python{}", version));
+        }
+        candidates.push("/usr/bin/python3".to_string());
+        candidates.push("/usr/local/bin/python3".to_string());
+        candidates.push("/opt/homebrew/bin/python3".to_string());
+        
+        // macOS/Linux: pyenv
+        if !home_dir.is_empty() {
+            candidates.push(format!("{}/.pyenv/shims/python", home_dir));
+            candidates.push(format!("{}/.pyenv/shims/python3", home_dir));
+            
+            // pyenv versions - 检测具体版本目录
+            for major in &["3.13", "3.12", "3.11", "3.10", "3.9"] {
+                for minor in 0..=20 {
+                    let version_path = format!("{}/.pyenv/versions/{}.{}/bin/python", home_dir, major, minor);
+                    if std::path::Path::new(&version_path).exists() {
+                        candidates.push(version_path);
+                    }
+                }
+            }
+            
+            // conda
+            candidates.push(format!("{}/anaconda3/bin/python", home_dir));
+            candidates.push(format!("{}/miniconda3/bin/python", home_dir));
+            candidates.push(format!("{}/mambaforge/bin/python", home_dir));
+            candidates.push(format!("{}/miniforge3/bin/python", home_dir));
+            
+            // asdf
+            candidates.push(format!("{}/.asdf/shims/python", home_dir));
+        }
+    }
+    
+    // 检测每个候选路径
+    for cmd in candidates {
+        // 跳过已检测过的路径
+        if seen_paths.contains(&cmd) {
+            continue;
+        }
+        
+        let result = std::process::Command::new(&cmd)
+            .arg("--version")
+            .output();
+        
+        if let Ok(output) = result {
+            if output.status.success() {
+                // 获取真实路径（解析符号链接）
+                let real_path = if let Ok(resolved) = std::fs::canonicalize(&cmd) {
+                    resolved.to_string_lossy().to_string()
+                } else {
+                    cmd.clone()
+                };
+                
+                // 跳过重复的真实路径
+                if seen_paths.contains(&real_path) {
+                    continue;
+                }
+                seen_paths.insert(real_path.clone());
+                seen_paths.insert(cmd.clone());
+                
+                // 获取版本信息
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let version = if version.is_empty() {
+                    String::from_utf8_lossy(&output.stderr).trim().to_string()
+                } else {
+                    version
+                };
+                
+                found_pythons.push((real_path, version));
+            }
+        }
+    }
+    
+    // 通过 which/where 命令补充
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("where")
+            .arg("python")
+            .output()
+        {
+            if output.status.success() {
+                let paths = String::from_utf8_lossy(&output.stdout);
+                for line in paths.lines() {
+                    let path = line.trim().to_string();
+                    if !path.is_empty() && !seen_paths.contains(&path) {
+                        if let Some(version) = get_python_version(&path) {
+                            seen_paths.insert(path.clone());
+                            found_pythons.push((path, version));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        for python_cmd in &["python3", "python"] {
+            if let Ok(output) = std::process::Command::new("which")
+                .arg("-a")
+                .arg(python_cmd)
+                .output()
+            {
+                if output.status.success() {
+                    let paths = String::from_utf8_lossy(&output.stdout);
+                    for line in paths.lines() {
+                        let path = line.trim().to_string();
+                        if !path.is_empty() && !seen_paths.contains(&path) {
+                            // 解析符号链接
+                            let real_path = if let Ok(resolved) = std::fs::canonicalize(&path) {
+                                resolved.to_string_lossy().to_string()
+                            } else {
+                                path.clone()
+                            };
+                            
+                            if !seen_paths.contains(&real_path) {
+                                if let Some(version) = get_python_version(&path) {
+                                    seen_paths.insert(path.clone());
+                                    seen_paths.insert(real_path.clone());
+                                    found_pythons.push((real_path, version));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 转换为 JSON 数组
+    let pythons: Vec<serde_json::Value> = found_pythons
+        .into_iter()
+        .map(|(path, version)| {
+            serde_json::json!({
+                "path": path,
+                "version": version
+            })
+        })
+        .collect();
+    
+    Ok(serde_json::json!({
+        "pythons": pythons,
+        "count": pythons.len()
+    }))
+}
+
 /// 启动 Chrome 隐私模式
 #[tauri::command]
 pub async fn launch_chrome_incognito(
@@ -205,8 +403,20 @@ pub async fn check_roxy_service(port: Option<u16>, token: Option<String>) -> Res
 pub fn get_registration_progress() -> RegistrationProgress {
     let state = AUTO_REGISTER_STATE.lock().unwrap();
     if let Some(s) = state.as_ref() {
+        // 正确判断状态：error > completed > running > idle
+        let status = if s.error.is_some() {
+            "error".to_string()
+        } else if s.is_running {
+            "running".to_string()
+        } else if s.total_count > 0 {
+            // 如果有任务执行过且没有错误，则为完成状态
+            "completed".to_string()
+        } else {
+            "idle".to_string()
+        };
+        
         RegistrationProgress {
-            status: if s.is_running { "running".to_string() } else { "idle".to_string() },
+            status,
             current_step: s.current_step.clone(),
             current_index: s.current_index,
             total_count: s.total_count,
@@ -276,6 +486,7 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
                 "开始自动注册流程".to_string()
             ],
             error: None,
+            pending_email: None,
         });
     }
     
@@ -439,23 +650,20 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
                                     // 检查是否是注册成功的日志，解析邮箱和密码
                                     // 格式: "邮箱: xxx@xxx.com" 和 "密码: xxx"
                                     if line.starts_with("邮箱: ") {
-                                        let email = line.trim_start_matches("邮箱: ").to_string();
+                                        let email = line.trim_start_matches("邮箱: ").trim().to_string();
                                         let mut state = AUTO_REGISTER_STATE.lock().unwrap();
                                         if let Some(s) = state.as_mut() {
-                                            // 临时存储邮箱
-                                            s.current_step = format!("__email__:{}", email);
+                                            // 使用 pending_email 存储邮箱，不会被 current_step 覆盖
+                                            s.pending_email = Some(email.clone());
+                                            s.logs.push(format!("[系统] 检测到注册邮箱: {}", email));
                                         }
                                     } else if line.starts_with("密码: ") {
-                                        let password = line.trim_start_matches("密码: ").to_string();
+                                        let password = line.trim_start_matches("密码: ").trim().to_string();
                                         // 获取之前存储的邮箱
                                         let email = {
-                                            let state = AUTO_REGISTER_STATE.lock().unwrap();
-                                            if let Some(s) = state.as_ref() {
-                                                if s.current_step.starts_with("__email__:") {
-                                                    Some(s.current_step.trim_start_matches("__email__:").to_string())
-                                                } else {
-                                                    None
-                                                }
+                                            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+                                            if let Some(s) = state.as_mut() {
+                                                s.pending_email.take() // 取出并清空
                                             } else {
                                                 None
                                             }
@@ -464,12 +672,24 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
                                         // 保存到历史记录
                                         if let Some(email) = email {
                                             let record = RegistrationRecord::new(
-                                                email,
-                                                password,
+                                                email.clone(),
+                                                password.clone(),
                                                 "success".to_string()
                                             );
                                             let mut store = get_store();
                                             store.as_mut().unwrap().add_record(record);
+                                            
+                                            // 添加日志
+                                            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+                                            if let Some(s) = state.as_mut() {
+                                                s.logs.push(format!("[系统] 已保存注册记录: {}", email));
+                                            }
+                                        } else {
+                                            // 未找到对应的邮箱
+                                            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+                                            if let Some(s) = state.as_mut() {
+                                                s.logs.push("[系统] 警告: 检测到密码但未找到对应邮箱".to_string());
+                                            }
                                         }
                                     }
                                     
@@ -560,6 +780,19 @@ pub fn stop_auto_register() -> Result<(), String> {
     } else {
         Err("没有正在运行的注册任务".to_string())
     }
+}
+
+/// 重置自动注册状态（清除错误状态，允许重新开始）
+#[tauri::command]
+pub fn reset_auto_register_state() -> Result<(), String> {
+    let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+    if let Some(s) = state.as_ref() {
+        if s.is_running {
+            return Err("任务正在运行中，无法重置".to_string());
+        }
+    }
+    *state = None;
+    Ok(())
 }
 
 // ============================================================

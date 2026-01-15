@@ -146,6 +146,18 @@ function AutoRegister() {
       if (event.payload.logs) {
         setLogs(event.payload.logs)
       }
+      
+      // 根据后端状态同步前端 isRunning 状态
+      const status = event.payload.status
+      if (status === 'error' || status === 'completed' || status === 'idle') {
+        setIsRunning(false)
+        // 任务完成或出错时刷新历史记录
+        if (status === 'error' || status === 'completed') {
+          loadHistory()
+        }
+      } else if (status === 'running') {
+        setIsRunning(true)
+      }
     })
 
     // 监听完成事件
