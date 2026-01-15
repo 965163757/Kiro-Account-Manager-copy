@@ -162,23 +162,23 @@ pub async fn detect_all_python_versions() -> Result<serde_json::Value, String> {
 fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     use std::collections::HashMap;
     
-    // 使用 HashMap 按版本号去重，保留最短路径
-    let mut version_map: HashMap<String, String> = HashMap::new();
+    // 使用 HashMap 按版本号去重，保存 (path, full_version)
+    let mut version_map: HashMap<String, (String, String)> = HashMap::new();
     
     // 辅助函数：添加 Python 到结果中
     let mut add_python = |path: &str| {
-        if let Some(version) = get_python_version_fast(path) {
+        if let Some(full_version) = get_python_version_fast(path) {
             // 提取主版本号用于去重 (e.g., "Python 3.12.0" -> "3.12")
-            let major_version = extract_major_version(&version);
+            let major_version = extract_major_version(&full_version);
             
             // 如果这个主版本还没有，或者当前路径更短，就使用这个
             let should_add = match version_map.get(&major_version) {
                 None => true,
-                Some(existing_path) => path.len() < existing_path.len(),
+                Some((existing_path, _)) => path.len() < existing_path.len(),
             };
             
             if should_add {
-                version_map.insert(major_version, path.to_string());
+                version_map.insert(major_version, (path.to_string(), full_version));
             }
         }
     };
@@ -230,12 +230,10 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     // 转换为结果数组，并按版本号排序（新版本在前）
     let mut pythons: Vec<serde_json::Value> = version_map
         .into_iter()
-        .map(|(major_version, path)| {
-            // 重新获取完整版本信息
-            let version = get_python_version_fast(&path).unwrap_or_else(|| format!("Python {}", major_version));
+        .map(|(_major_version, (path, full_version))| {
             serde_json::json!({
                 "path": path,
-                "version": version
+                "version": full_version
             })
         })
         .collect();
