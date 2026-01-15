@@ -560,10 +560,7 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
         
         // Windows: 添加 CREATE_NO_WINDOW 标志，避免弹出控制台窗口导致阻塞
         #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         
         match cmd.spawn() {
             Ok(mut child) => {
