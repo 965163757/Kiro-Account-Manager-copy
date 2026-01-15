@@ -160,51 +160,44 @@ pub async fn detect_all_python_versions() -> Result<serde_json::Value, String> {
 
 /// 同步检测所有可用的 Python 版本（内部函数）
 fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
-    use std::collections::HashSet;
+    use std::collections::HashMap;
     
-    let home_dir = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_default();
+    // 使用 HashMap 按版本号去重，保留最短路径
+    let mut version_map: HashMap<String, String> = HashMap::new();
     
-    let mut found_pythons: Vec<(String, String)> = Vec::new();
-    let mut seen_paths: HashSet<String> = HashSet::new();
-    
-    // Windows: 优先使用 where 命令快速获取 PATH 中的 Python
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(output) = std::process::Command::new("where")
-            .arg("python")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output()
-        {
-            if output.status.success() {
-                let paths = String::from_utf8_lossy(&output.stdout);
-                for line in paths.lines().take(5) { // 最多取5个
-                    let path = line.trim().to_string();
-                    if !path.is_empty() && !seen_paths.contains(&path) {
-                        if let Some(version) = get_python_version_fast(&path) {
-                            seen_paths.insert(path.clone());
-                            found_pythons.push((path, version));
-                        }
-                    }
-                }
+    // 辅助函数：添加 Python 到结果中
+    let mut add_python = |path: &str| {
+        if let Some(version) = get_python_version_fast(path) {
+            // 提取主版本号用于去重 (e.g., "Python 3.12.0" -> "3.12")
+            let major_version = extract_major_version(&version);
+            
+            // 如果这个主版本还没有，或者当前路径更短，就使用这个
+            let should_add = match version_map.get(&major_version) {
+                None => true,
+                Some(existing_path) => path.len() < existing_path.len(),
+            };
+            
+            if should_add {
+                version_map.insert(major_version, path.to_string());
             }
         }
-        
-        // where python3
-        if let Ok(output) = std::process::Command::new("where")
-            .arg("python3")
-            .creation_flags(0x08000000)
-            .output()
-        {
-            if output.status.success() {
-                let paths = String::from_utf8_lossy(&output.stdout);
-                for line in paths.lines().take(3) {
-                    let path = line.trim().to_string();
-                    if !path.is_empty() && !seen_paths.contains(&path) {
-                        if let Some(version) = get_python_version_fast(&path) {
-                            seen_paths.insert(path.clone());
-                            found_pythons.push((path, version));
+    };
+    
+    // Windows: 使用 where 命令
+    #[cfg(target_os = "windows")]
+    {
+        for cmd in &["python", "python3", "py"] {
+            if let Ok(output) = std::process::Command::new("where")
+                .arg(cmd)
+                .creation_flags(0x08000000)
+                .output()
+            {
+                if output.status.success() {
+                    let paths = String::from_utf8_lossy(&output.stdout);
+                    for line in paths.lines() {
+                        let path = line.trim();
+                        if !path.is_empty() {
+                            add_python(path);
                         }
                     }
                 }
@@ -215,21 +208,18 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     // macOS/Linux: 使用 which 命令
     #[cfg(not(target_os = "windows"))]
     {
-        for python_cmd in &["python3", "python"] {
+        for cmd in &["python3", "python"] {
             if let Ok(output) = std::process::Command::new("which")
                 .arg("-a")
-                .arg(python_cmd)
+                .arg(cmd)
                 .output()
             {
                 if output.status.success() {
                     let paths = String::from_utf8_lossy(&output.stdout);
-                    for line in paths.lines().take(5) {
-                        let path = line.trim().to_string();
-                        if !path.is_empty() && !seen_paths.contains(&path) {
-                            if let Some(version) = get_python_version_fast(&path) {
-                                seen_paths.insert(path.clone());
-                                found_pythons.push((path, version));
-                            }
+                    for line in paths.lines() {
+                        let path = line.trim();
+                        if !path.is_empty() {
+                            add_python(path);
                         }
                     }
                 }
@@ -237,80 +227,12 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
         }
     }
     
-    // 检查常见安装路径（仅检查文件存在性，不执行命令）
-    let mut candidates: Vec<String> = Vec::new();
-    
-    if cfg!(target_os = "windows") {
-        // Windows: 常见安装路径
-        for version in &["313", "312", "311", "310", "39"] {
-            let path = format!(r"C:\Python{}\python.exe", version);
-            if std::path::Path::new(&path).exists() {
-                candidates.push(path);
-            }
-            
-            if !home_dir.is_empty() {
-                let path = format!(r"{}\AppData\Local\Programs\Python\Python{}\python.exe", home_dir, version);
-                if std::path::Path::new(&path).exists() {
-                    candidates.push(path);
-                }
-            }
-        }
-        
-        // conda
-        if !home_dir.is_empty() {
-            for conda_dir in &["Anaconda3", "miniconda3", "anaconda3", "Miniconda3"] {
-                let path = format!(r"{}\{}\python.exe", home_dir, conda_dir);
-                if std::path::Path::new(&path).exists() {
-                    candidates.push(path);
-                }
-            }
-        }
-    } else {
-        // macOS/Linux: 检查常见路径
-        let paths = [
-            "/usr/bin/python3",
-            "/usr/local/bin/python3",
-            "/opt/homebrew/bin/python3",
-        ];
-        for path in &paths {
-            if std::path::Path::new(path).exists() && !seen_paths.contains(*path) {
-                candidates.push(path.to_string());
-            }
-        }
-        
-        // pyenv
-        if !home_dir.is_empty() {
-            let pyenv_path = format!("{}/.pyenv/shims/python3", home_dir);
-            if std::path::Path::new(&pyenv_path).exists() {
-                candidates.push(pyenv_path);
-            }
-            
-            // conda
-            for conda_dir in &["anaconda3", "miniconda3", "mambaforge", "miniforge3"] {
-                let path = format!("{}/{}/bin/python", home_dir, conda_dir);
-                if std::path::Path::new(&path).exists() {
-                    candidates.push(path);
-                }
-            }
-        }
-    }
-    
-    // 检测候选路径（已确认存在的文件）
-    for cmd in candidates {
-        if seen_paths.contains(&cmd) {
-            continue;
-        }
-        
-        if let Some(version) = get_python_version_fast(&cmd) {
-            seen_paths.insert(cmd.clone());
-            found_pythons.push((cmd, version));
-        }
-    }
-    
-    // 转换为 JSON 数组
-    let pythons: Vec<serde_json::Value> = found_pythons
+    // 转换为结果数组，并按版本号排序（新版本在前）
+    let mut pythons: Vec<serde_json::Value> = version_map
         .into_iter()
-        .map(|(path, version)| {
+        .map(|(major_version, path)| {
+            // 重新获取完整版本信息
+            let version = get_python_version_fast(&path).unwrap_or_else(|| format!("Python {}", major_version));
             serde_json::json!({
                 "path": path,
                 "version": version
@@ -318,13 +240,36 @@ fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
         })
         .collect();
     
+    // 按版本排序（降序，新版本在前）
+    pythons.sort_by(|a, b| {
+        let va = a["version"].as_str().unwrap_or("");
+        let vb = b["version"].as_str().unwrap_or("");
+        vb.cmp(va)
+    });
+    
     Ok(serde_json::json!({
         "pythons": pythons,
         "count": pythons.len()
     }))
 }
 
-/// 快速获取 Python 版本（带超时）
+/// 提取主版本号 (e.g., "Python 3.12.0" -> "3.12")
+fn extract_major_version(version: &str) -> String {
+    // 尝试匹配 "Python X.Y.Z" 或 "Python X.Y"
+    let version = version.trim();
+    if let Some(rest) = version.strip_prefix("Python ") {
+        let parts: Vec<&str> = rest.split('.').collect();
+        if parts.len() >= 2 {
+            return format!("{}.{}", parts[0], parts[1]);
+        } else if !parts.is_empty() {
+            return parts[0].to_string();
+        }
+    }
+    // 回退：返回整个版本字符串
+    version.to_string()
+}
+
+/// 快速获取 Python 版本
 fn get_python_version_fast(python_path: &str) -> Option<String> {
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new(python_path)
@@ -341,7 +286,11 @@ fn get_python_version_fast(python_path: &str) -> Option<String> {
         if output.status.success() {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if version.is_empty() {
-                return Some(String::from_utf8_lossy(&output.stderr).trim().to_string());
+                let stderr_version = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if !stderr_version.is_empty() {
+                    return Some(stderr_version);
+                }
+                return None;
             }
             return Some(version);
         }
