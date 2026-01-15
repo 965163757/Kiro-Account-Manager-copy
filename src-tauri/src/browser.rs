@@ -3,6 +3,18 @@
 use crate::commands::app_settings_cmd::get_browser_path;
 use serde::Serialize;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// 创建静默进程命令（Windows 下不弹出控制台窗口）
+fn silent_command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
 /// 打开浏览器访问指定 URL
 /// 如果用户配置了自定义浏览器路径，则使用自定义浏览器
 /// 否则使用系统默认浏览器
@@ -113,7 +125,7 @@ fn open_with_custom_browser(browser_path: &str, url: &str) -> Result<(), String>
 
     println!("[Browser] Opening with custom browser: {} {:?}", exe_path, args);
 
-    std::process::Command::new(exe_path)
+    silent_command(exe_path)
         .args(&args)
         .spawn()
         .map_err(|e| format!("打开自定义浏览器失败: {} (路径: {})", e, exe_path))?;
@@ -127,7 +139,7 @@ fn open_with_default_browser(url: &str) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("rundll32")
+        silent_command("rundll32")
             .args(["url.dll,FileProtocolHandler", url])
             .spawn()
             .map_err(|e| format!("打开浏览器失败: {}", e))?;
