@@ -500,8 +500,58 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
     // 发送进度更新事件
     let _ = app_handle.emit("auto-register-progress", get_registration_progress());
     
-    // 构建脚本参数
-    let script_path = get_scripts_dir().join("auto.py");
+    // 获取脚本目录和路径
+    let scripts_dir = get_scripts_dir();
+    let script_path = scripts_dir.join("auto.py");
+    
+    // 如果脚本不存在，从内嵌资源创建
+    if !script_path.exists() {
+        // 确保目录存在
+        if let Err(e) = std::fs::create_dir_all(&scripts_dir) {
+            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+            if let Some(s) = state.as_mut() {
+                s.is_running = false;
+                s.error = Some(format!("创建脚本目录失败: {}", e));
+                s.logs.push(format!("错误: 创建脚本目录失败: {}", e));
+            }
+            let _ = app_handle.emit("auto-register-progress", get_registration_progress());
+            return Err(format!("创建脚本目录失败: {}", e));
+        }
+        
+        // 从内嵌资源写入脚本
+        let default_content = get_default_script_content();
+        if let Err(e) = std::fs::write(&script_path, default_content) {
+            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+            if let Some(s) = state.as_mut() {
+                s.is_running = false;
+                s.error = Some(format!("写入脚本文件失败: {}", e));
+                s.logs.push(format!("错误: 写入脚本文件失败: {}", e));
+            }
+            let _ = app_handle.emit("auto-register-progress", get_registration_progress());
+            return Err(format!("写入脚本文件失败: {}", e));
+        }
+        
+        // 记录日志
+        {
+            let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+            if let Some(s) = state.as_mut() {
+                s.logs.push(format!("已自动创建脚本: {:?}", script_path));
+            }
+        }
+        let _ = app_handle.emit("auto-register-progress", get_registration_progress());
+    }
+    
+    // 再次验证脚本存在
+    if !script_path.exists() {
+        let mut state = AUTO_REGISTER_STATE.lock().unwrap();
+        if let Some(s) = state.as_mut() {
+            s.is_running = false;
+            s.error = Some(format!("脚本文件不存在: {:?}", script_path));
+            s.logs.push(format!("错误: 脚本文件仍不存在"));
+        }
+        let _ = app_handle.emit("auto-register-progress", get_registration_progress());
+        return Err(format!("脚本文件不存在: {:?}", script_path));
+    }
     
     // 获取绝对路径用于日志（移除 Windows 的 \\?\ 前缀）
     let script_path_abs = script_path.canonicalize().unwrap_or_else(|_| script_path.clone());
@@ -510,42 +560,6 @@ pub async fn start_auto_register(app_handle: AppHandle, count: Option<u32>, inte
             .trim_start_matches(r"\\?\")
             .to_string()
     );
-    
-    // 检查脚本是否存在
-    if !script_path.exists() {
-        // 尝试列出可能的位置
-        let mut possible_paths = vec![
-            PathBuf::from(".").join("auto.py"),
-            PathBuf::from("..").join("auto.py"),
-        ];
-        
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(project_root) = exe_path.parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-            {
-                possible_paths.push(project_root.join("auto.py"));
-            }
-        }
-        
-        let mut state = AUTO_REGISTER_STATE.lock().unwrap();
-        if let Some(s) = state.as_mut() {
-            s.is_running = false;
-            s.error = Some(format!("脚本文件不存在: {:?}", script_path_abs));
-            s.logs.push(format!("错误: 脚本文件不存在"));
-            s.logs.push(format!("查找路径: {:?}", script_path_abs));
-            s.logs.push(format!("当前工作目录: {:?}", std::env::current_dir().unwrap_or_default()));
-            
-            // 列出尝试过的路径
-            for p in &possible_paths {
-                let exists = p.exists();
-                s.logs.push(format!("尝试路径: {:?} - {}", p, if exists { "存在" } else { "不存在" }));
-            }
-        }
-        let _ = app_handle.emit("auto-register-progress", get_registration_progress());
-        return Err(format!("脚本文件不存在: {:?}", script_path_abs));
-    }
     
     let args = build_script_args(&config);
     let env_vars = build_script_env(&config);
