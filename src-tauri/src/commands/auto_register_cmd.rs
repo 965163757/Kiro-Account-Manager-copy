@@ -3,6 +3,9 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use crate::auto_register::{
     AutoRegisterConfig, AutoRegisterConfigStore, RegistrationProgress, RegistrationRecord,
     detect_chrome_path, detect_python, detect_python_with_path, get_python_version,
@@ -144,9 +147,19 @@ pub fn detect_python_env(custom_path: Option<String>) -> Result<serde_json::Valu
     }))
 }
 
-/// 检测所有可用的 Python 版本
+/// 检测所有可用的 Python 版本（异步执行，避免阻塞 UI）
 #[tauri::command]
-pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
+pub async fn detect_all_python_versions() -> Result<serde_json::Value, String> {
+    // 在后台线程执行耗时操作
+    tokio::task::spawn_blocking(|| {
+        detect_all_python_versions_sync()
+    })
+    .await
+    .map_err(|e| format!("检测 Python 失败: {}", e))?
+}
+
+/// 同步检测所有可用的 Python 版本（内部函数）
+fn detect_all_python_versions_sync() -> Result<serde_json::Value, String> {
     use std::collections::HashSet;
     
     let home_dir = std::env::var("HOME")
@@ -156,132 +169,40 @@ pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
     let mut found_pythons: Vec<(String, String)> = Vec::new();
     let mut seen_paths: HashSet<String> = HashSet::new();
     
-    // 构建候选路径列表
-    let mut candidates: Vec<String> = Vec::new();
-    
-    if cfg!(target_os = "windows") {
-        // Windows: 基础命令
-        candidates.extend(vec![
-            "python".to_string(),
-            "python3".to_string(),
-            "py".to_string(),
-        ]);
-        
-        // Windows: 常见安装路径
-        for version in &["313", "312", "311", "310", "39", "38"] {
-            candidates.push(format!(r"C:\Python{}\python.exe", version));
-            candidates.push(format!(r"C:\Program Files\Python{}\python.exe", version));
-            if !home_dir.is_empty() {
-                candidates.push(format!(r"{}\AppData\Local\Programs\Python\Python{}\python.exe", home_dir, version));
-            }
-        }
-        
-        // Windows: pyenv-win
-        if !home_dir.is_empty() {
-            candidates.push(format!(r"{}\.pyenv\pyenv-win\shims\python.exe", home_dir));
-        }
-        
-        // Windows: conda
-        if !home_dir.is_empty() {
-            candidates.push(format!(r"{}\Anaconda3\python.exe", home_dir));
-            candidates.push(format!(r"{}\miniconda3\python.exe", home_dir));
-        }
-    } else {
-        // macOS/Linux: 基础命令
-        candidates.extend(vec![
-            "python3".to_string(),
-            "python".to_string(),
-        ]);
-        
-        // macOS/Linux: 系统路径 + 多版本
-        for version in &["3.13", "3.12", "3.11", "3.10", "3.9", "3.8"] {
-            candidates.push(format!("/usr/bin/python{}", version));
-            candidates.push(format!("/usr/local/bin/python{}", version));
-            candidates.push(format!("/opt/homebrew/bin/python{}", version));
-        }
-        candidates.push("/usr/bin/python3".to_string());
-        candidates.push("/usr/local/bin/python3".to_string());
-        candidates.push("/opt/homebrew/bin/python3".to_string());
-        
-        // macOS/Linux: pyenv
-        if !home_dir.is_empty() {
-            candidates.push(format!("{}/.pyenv/shims/python", home_dir));
-            candidates.push(format!("{}/.pyenv/shims/python3", home_dir));
-            
-            // pyenv versions - 检测具体版本目录
-            for major in &["3.13", "3.12", "3.11", "3.10", "3.9"] {
-                for minor in 0..=20 {
-                    let version_path = format!("{}/.pyenv/versions/{}.{}/bin/python", home_dir, major, minor);
-                    if std::path::Path::new(&version_path).exists() {
-                        candidates.push(version_path);
-                    }
-                }
-            }
-            
-            // conda
-            candidates.push(format!("{}/anaconda3/bin/python", home_dir));
-            candidates.push(format!("{}/miniconda3/bin/python", home_dir));
-            candidates.push(format!("{}/mambaforge/bin/python", home_dir));
-            candidates.push(format!("{}/miniforge3/bin/python", home_dir));
-            
-            // asdf
-            candidates.push(format!("{}/.asdf/shims/python", home_dir));
-        }
-    }
-    
-    // 检测每个候选路径
-    for cmd in candidates {
-        // 跳过已检测过的路径
-        if seen_paths.contains(&cmd) {
-            continue;
-        }
-        
-        let result = std::process::Command::new(&cmd)
-            .arg("--version")
-            .output();
-        
-        if let Ok(output) = result {
-            if output.status.success() {
-                // 获取真实路径（解析符号链接）
-                let real_path = if let Ok(resolved) = std::fs::canonicalize(&cmd) {
-                    resolved.to_string_lossy().to_string()
-                } else {
-                    cmd.clone()
-                };
-                
-                // 跳过重复的真实路径
-                if seen_paths.contains(&real_path) {
-                    continue;
-                }
-                seen_paths.insert(real_path.clone());
-                seen_paths.insert(cmd.clone());
-                
-                // 获取版本信息
-                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let version = if version.is_empty() {
-                    String::from_utf8_lossy(&output.stderr).trim().to_string()
-                } else {
-                    version
-                };
-                
-                found_pythons.push((real_path, version));
-            }
-        }
-    }
-    
-    // 通过 which/where 命令补充
+    // Windows: 优先使用 where 命令快速获取 PATH 中的 Python
     #[cfg(target_os = "windows")]
     {
         if let Ok(output) = std::process::Command::new("where")
             .arg("python")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
         {
             if output.status.success() {
                 let paths = String::from_utf8_lossy(&output.stdout);
-                for line in paths.lines() {
+                for line in paths.lines().take(5) { // 最多取5个
                     let path = line.trim().to_string();
                     if !path.is_empty() && !seen_paths.contains(&path) {
-                        if let Some(version) = get_python_version(&path) {
+                        if let Some(version) = get_python_version_fast(&path) {
+                            seen_paths.insert(path.clone());
+                            found_pythons.push((path, version));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // where python3
+        if let Ok(output) = std::process::Command::new("where")
+            .arg("python3")
+            .creation_flags(0x08000000)
+            .output()
+        {
+            if output.status.success() {
+                let paths = String::from_utf8_lossy(&output.stdout);
+                for line in paths.lines().take(3) {
+                    let path = line.trim().to_string();
+                    if !path.is_empty() && !seen_paths.contains(&path) {
+                        if let Some(version) = get_python_version_fast(&path) {
                             seen_paths.insert(path.clone());
                             found_pythons.push((path, version));
                         }
@@ -291,6 +212,7 @@ pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
         }
     }
     
+    // macOS/Linux: 使用 which 命令
     #[cfg(not(target_os = "windows"))]
     {
         for python_cmd in &["python3", "python"] {
@@ -301,27 +223,87 @@ pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
             {
                 if output.status.success() {
                     let paths = String::from_utf8_lossy(&output.stdout);
-                    for line in paths.lines() {
+                    for line in paths.lines().take(5) {
                         let path = line.trim().to_string();
                         if !path.is_empty() && !seen_paths.contains(&path) {
-                            // 解析符号链接
-                            let real_path = if let Ok(resolved) = std::fs::canonicalize(&path) {
-                                resolved.to_string_lossy().to_string()
-                            } else {
-                                path.clone()
-                            };
-                            
-                            if !seen_paths.contains(&real_path) {
-                                if let Some(version) = get_python_version(&path) {
-                                    seen_paths.insert(path.clone());
-                                    seen_paths.insert(real_path.clone());
-                                    found_pythons.push((real_path, version));
-                                }
+                            if let Some(version) = get_python_version_fast(&path) {
+                                seen_paths.insert(path.clone());
+                                found_pythons.push((path, version));
                             }
                         }
                     }
                 }
             }
+        }
+    }
+    
+    // 检查常见安装路径（仅检查文件存在性，不执行命令）
+    let mut candidates: Vec<String> = Vec::new();
+    
+    if cfg!(target_os = "windows") {
+        // Windows: 常见安装路径
+        for version in &["313", "312", "311", "310", "39"] {
+            let path = format!(r"C:\Python{}\python.exe", version);
+            if std::path::Path::new(&path).exists() {
+                candidates.push(path);
+            }
+            
+            if !home_dir.is_empty() {
+                let path = format!(r"{}\AppData\Local\Programs\Python\Python{}\python.exe", home_dir, version);
+                if std::path::Path::new(&path).exists() {
+                    candidates.push(path);
+                }
+            }
+        }
+        
+        // conda
+        if !home_dir.is_empty() {
+            for conda_dir in &["Anaconda3", "miniconda3", "anaconda3", "Miniconda3"] {
+                let path = format!(r"{}\{}\python.exe", home_dir, conda_dir);
+                if std::path::Path::new(&path).exists() {
+                    candidates.push(path);
+                }
+            }
+        }
+    } else {
+        // macOS/Linux: 检查常见路径
+        let paths = [
+            "/usr/bin/python3",
+            "/usr/local/bin/python3",
+            "/opt/homebrew/bin/python3",
+        ];
+        for path in &paths {
+            if std::path::Path::new(path).exists() && !seen_paths.contains(*path) {
+                candidates.push(path.to_string());
+            }
+        }
+        
+        // pyenv
+        if !home_dir.is_empty() {
+            let pyenv_path = format!("{}/.pyenv/shims/python3", home_dir);
+            if std::path::Path::new(&pyenv_path).exists() {
+                candidates.push(pyenv_path);
+            }
+            
+            // conda
+            for conda_dir in &["anaconda3", "miniconda3", "mambaforge", "miniforge3"] {
+                let path = format!("{}/{}/bin/python", home_dir, conda_dir);
+                if std::path::Path::new(&path).exists() {
+                    candidates.push(path);
+                }
+            }
+        }
+    }
+    
+    // 检测候选路径（已确认存在的文件）
+    for cmd in candidates {
+        if seen_paths.contains(&cmd) {
+            continue;
+        }
+        
+        if let Some(version) = get_python_version_fast(&cmd) {
+            seen_paths.insert(cmd.clone());
+            found_pythons.push((cmd, version));
         }
     }
     
@@ -340,6 +322,31 @@ pub fn detect_all_python_versions() -> Result<serde_json::Value, String> {
         "pythons": pythons,
         "count": pythons.len()
     }))
+}
+
+/// 快速获取 Python 版本（带超时）
+fn get_python_version_fast(python_path: &str) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new(python_path)
+        .arg("--version")
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+    
+    #[cfg(not(target_os = "windows"))]
+    let result = std::process::Command::new(python_path)
+        .arg("--version")
+        .output();
+    
+    if let Ok(output) = result {
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if version.is_empty() {
+                return Some(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            }
+            return Some(version);
+        }
+    }
+    None
 }
 
 /// 启动 Chrome 隐私模式
